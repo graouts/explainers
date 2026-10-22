@@ -30,19 +30,19 @@
 
 ## tl;dr
 
-We propose adding a `frameRate` property on the `Animation` interface to allow authors to run animations at a higher or lower frame rate than the default frame rate the browser uses to [update the page rendering](https://html.spec.whatwg.org/multipage/webappapis.html#update-the-rendering).
+We propose adding a `frameRate` property on the `DocumentTimeline` interface to allow timelines to update and their animations to run at a higher or lower frame rate than the default frame rate the browser uses to [update the page rendering](https://html.spec.whatwg.org/multipage/webappapis.html#update-the-rendering).
 
 ## Introduction
 
 Plenty of devices sport displays with refresh rates that are greater than 60Hz; mobile devices exist with 90Hz and 120Hz refresh rates, and desktop screens exist with 144Hz and 240Hz refresh rates.
 
-Starting with the iPad Pro in 2018 and now in 2021 with the iPhone 13 Pro and the 14” and 16” 2021 MacBooks Pro, Apple devices have supported multiple refresh rates under the moniker [ProMotion](https://developer.apple.com/documentation/quartzcore/optimizing_promotion_refresh_rates_for_iphone_13_pro_and_ipad_pro). Using this technology, displays may refresh their display at up to 120Hz, but can also adjust to various refresh rates along the way, instead of using the constant refresh rate of 60Hz.
+Starting with the iPad Pro in 2018 and the iPhone 13 Pro and MacBook Pro in 2021, Apple devices have supported multiple refresh rates under the moniker [ProMotion](https://developer.apple.com/documentation/quartzcore/optimizing_promotion_refresh_rates_for_iphone_13_pro_and_ipad_pro). Using this technology, displays may refresh at up to 120Hz, but can also adjust to various refresh rates along the way, instead of using a constant refresh rate of 60Hz.
 
 On Apple's 120Hz devices, accelerated animations already run at 120Hz thanks to Core Animation's built-in support for the ProMotion technology, whereas the rest of the Web page only updates at 60Hz. This "rest of the Web page" includes script-driven animations using `requestAnimationFrame()` as well as all non-accelerated Web Animations (including CSS Transitions and CSS Animations).
 
 WebKit chose to restrict web content updates to 60Hz for two reasons: first, we measured a significant increase in power usage, and second, we found several examples of web pages that had incorrect behavior when `requestAnimationFrame()` callbacks were fired at a non-60Hz frequency.
 
-However, now that there are more devices with high refresh rate displays, we believe it's judicious to propose advancing the Web platform to take advantage of higher refresh rates and allow authors to choose a suitable refresh rate for different kinds of animations, including low-impact animations that could run at lower frame rates and allow lower power usage.
+However, now that devices with high refresh rate displays are increasingly the norm, we believe it's judicious to propose advancing the Web platform to take advantage of higher refresh rates and allow authors to choose a suitable refresh rate for different kinds of animations, including low-impact animations that could run at lower frame rates and allow lower power usage.
 
 ## Variable frame rate
 
@@ -58,7 +58,7 @@ We think that it's important that API enhancements in this area allow authors to
 
 **Higher Frequency**
 
-* WebGL or 2D canvas game or visualization
+* WebGL, WebGPU or 2D canvas games and visualizations
 * High-impact CSS/SVG/DOM animation
 
 **Lower Frequency**
@@ -68,37 +68,72 @@ We think that it's important that API enhancements in this area allow authors to
 * Fade animations (opacity, color, some filters) where lower frame rates are less noticeable
 * Animated content that uses a `steps()` timing function
 
-Outside of animations that may benefit from a lower frame rates without jeopardizing their overall impact, authors may want to preserve power usage by generally taking a conservative approach towards opting into higher frame rate animations.
+Outside of animations that may benefit from a lower frame rate without jeopardizing their overall impact, authors may want to preserve power usage by generally taking a conservative approach towards opting into higher frame rate animations.
 
 ## General proposal
 
-We propose that authors are able specify an intent conveying the frame rate at which animations are run. Using the maximum attainable frame rate, advertised on the document's timeline, authors can specify frame rates that can realistically be achieved. Additionally, they may choose from a series of pre-defined relative values such as `auto`, `low`, `high` and `highest`.
+We propose that authors are able specify an intent conveying the frame rate at which timelines are updated and their associated animations are run. Using the maximum attainable frame rate, advertised on document timelines, authors can specify frame rates that can realistically be achieved. Additionally, they may choose from a series of pre-defined relative values such as `auto`, `low`, `high` and `highest`.
 
 ## Proposed changes to existing technologies
 
 ### Web Animations
 
-Animations created using the [Web Animations API](https://www.w3.org/TR/web-animations-1) can indicate their `frameRate` by providing one of four values from the `AnimationFrameRatePreset` enum, the default value being `auto`, matching the browser's default frame rate used to [update the page rendering](https://html.spec.whatwg.org/multipage/webappapis.html#update-the-rendering). Alternatively, the `frameRate` property may be set to a numeric value.
-
-In order to set frame rates that may best align with the refresh rate of the device's display, the document timeline advertises its `maximumFrameRate`. Setting frame rates that are the result of dividing this value by a whole number is usually the best way to expect the provided frame rate to be met. 
+Animations created using the [Web Animations API](https://www.w3.org/TR/web-animations-1) can be associated with a `DocumentTimeline` instance created with the desired `frameRate` by providing one of four values from the `AnimationFrameRatePreset` enum, the default value `auto` matching the browser's default frame rate used to [update the page rendering](https://html.spec.whatwg.org/multipage/webappapis.html#update-the-rendering). Alternatively, the `frameRate` property may be set to a numeric value informed by the timeline's `maximumFrameRate` property. Setting frame rates that are the result of dividing this value by a whole number is usually the best way to expect the provided frame rate to be met.
 
 ```idl
 typedef unsigned long FramesPerSecond;
 
-interface DocumentTimeline {
-    readonly attribute FramesPerSecond? maximumFrameRate;
-};
-
 enum AnimationFrameRatePreset { "auto", "low", "high", "highest" };
 
-interface Animation {
-    attribute (FramesPerSecond or AnimationFrameRatePreset) frameRate;
+partial dictionary DocumentTimelineOptions {
+  attribute (FramesPerSecond or AnimationFrameRatePreset) frameRate = "auto";
+};
+
+partial interface DocumentTimeline {
+  readonly attribute FramesPerSecond? maximumFrameRate;
+  attribute (FramesPerSecond or AnimationFrameRatePreset) frameRate;
 };
 ```
 
+Here's an example where a user creates an animation associated with a timeline running at 24fps:
+
+```javascript
+const timeline = new DocumentTimeline({ frameRate: 24 });
+target.animate({ translate: '100px' }, { timeline, duration: 1000 });
+```
+
+Multiple animations can share a single document timeline, allowing the frame rate to be adjusted at once for all its associated animations.
+
+> **Note:** it may not be desirable to allow page authors to control the default document timeline (`document.timeline`) such that pages can't opt into a higher frame rate, forcing the developer to make a more conscious decision.
+
 ### CSS Animations and CSS Transitions
 
-Authors can declare the impact of a CSS Animation or CSS Transition in CSS with the new properties, `animation-frame-rate` and `transition-frame-rate`, with values `auto`, `low`, `high` and `highest` or a specified numeric value.
+Authors can already associate CSS Animations with a timeline using the `animation-timeline` property. We propose a new at-rule to allow the definition of document-wide timelines:
+
+```
+@document-timeline <dashed-ident> {
+  <declaration-list>
+}
+```
+
+In order to also allow CSS Transitions to support association with a document timeline updating at a non-default frame rate, we also introduce the new `transition-timeline` property. Given the monotonic nature of CSS Transitions, this property is restricted to referencing monotic timelines.
+
+Here's an example where a user creates a CSS Animation associated with a timeline running at 24fps:
+
+```css
+@document-timeline --low-impact {
+  frame-rate: 24fps;
+}
+
+@keyframes slide {
+  to { translate: 100px; }
+}
+
+.target {
+  animation: slide 1s;
+  animation-timeline: --low-impact;
+}
+```
 
 > **Note:** there may be some nuances here around the timing of transition and animation events; for example, if the end of an animation iteration for a 30fps animation falls close to a 4ms boundary, when is the `animationiteration` events fired?
 
