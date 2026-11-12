@@ -5,7 +5,7 @@
 - [Antoine Quint](https://github.com/graouts)
 
 ## Participate
-- https://github.com/WebKit/explainers
+- [https://github.com/WebKit/explainers](https://github.com/WebKit/explainers)
 
 ## Table of Contents
 
